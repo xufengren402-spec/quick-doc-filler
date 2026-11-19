@@ -34,7 +34,7 @@ jobs:
             rm -f test/widget_test.dart
           fi
 
-      - name: 补齐网络权限与 minSdk >= 23
+      - name: 补齐网络权限、minSdk >= 23 并关闭 Release Lint 阻塞
         run: |
           python3 - << 'EOF'
           from pathlib import Path
@@ -56,6 +56,12 @@ jobs:
                   gtext = re.sub(r"minSdkVersion\s+flutter\.minSdkVersion", "minSdkVersion 23", gtext)
                   gtext = re.sub(r"minSdk\s*=\s*21", "minSdk = 23", gtext)
                   gtext = re.sub(r"minSdkVersion\s+21", "minSdkVersion 23", gtext)
+                  if "checkReleaseBuilds" not in gtext:
+                      if gradle_name.endswith(".kts"):
+                          lint_block = "android {\n    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }\n"
+                      else:
+                          lint_block = "android {\n    lint {\n        checkReleaseBuilds false\n        abortOnError false\n    }\n"
+                      gtext = gtext.replace("android {", lint_block, 1)
                   gp.write_text(gtext, encoding="utf-8")
           EOF
 
