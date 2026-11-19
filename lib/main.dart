@@ -26,153 +26,104 @@ class QuickDocFillerApp extends StatelessWidget {
   }
 }
 
-/// 自定义自动填表规则模型
-class CustomFillRule {
-  final String title;    // 字段展示名，例如：微信号
-  final String keywords; // 匹配关键词（逗号分隔），例如：微信号,微信,wechat
-  final String value;    // 自动填入的内容
+/// 腾讯文档全自动填写 UI 脚本（融合自你上传的油猴脚本，打开 docs.qq.com/form/* 自动注入）
+const String kTencentDocsUserScript = r'''
+(function() {
+    'use strict';
+    if (window.__txwd_ui_injected) return;
+    window.__txwd_ui_injected = true;
 
-  const CustomFillRule({
-    required this.title,
-    required this.keywords,
-    required this.value,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'title': title,
-        'keywords': keywords,
-        'value': value,
-      };
-
-  factory CustomFillRule.fromJson(Map<String, dynamic> json) {
-    return CustomFillRule(
-      title: json['title']?.toString() ?? '',
-      keywords: json['keywords']?.toString() ?? '',
-      value: json['value']?.toString() ?? '',
-    );
-  }
-}
-
-/// 默认初始模板（用户可在 App 内随意修改、删除或新增）
-List<CustomFillRule> defaultFillRules() => const [
-      CustomFillRule(title: '姓名', keywords: '姓名,名字,填报人,联系人,真实姓名,name', value: ''),
-      CustomFillRule(title: '手机号码', keywords: '手机,电话,联系方式,联系电话,mobile,phone,tel', value: ''),
-      CustomFillRule(title: '电子邮箱', keywords: '邮箱,电子邮箱,email,mail', value: ''),
-      CustomFillRule(title: '学号 / 工号', keywords: '学号,工号,编号,员工号,student', value: ''),
-      CustomFillRule(title: '部门 / 学院', keywords: '部门,学院,单位,班级,公司,专业,组织', value: ''),
-      CustomFillRule(title: '常用地址', keywords: '地址,住址,宿舍,address', value: ''),
-    ];
-
-Future<List<CustomFillRule>> loadFillRules(UserProfileStore store) async {
-  final raw = await store.getDecryptedProfile();
-  final list = raw['custom_rules'];
-  if (list is List && list.isNotEmpty) {
-    return list
-        .whereType()
-        .map((e) => CustomFillRule.fromJson(Map<String, dynamic>.from(e)))
-        .toList();
-  }
-  return defaultFillRules();
-}
-
-Future<void> saveFillRules(
-  UserProfileStore store,
-  List<CustomFillRule> rules,
-) async {
-  await store.saveProfile({
-    'custom_rules': rules.map((r) => r.toJson()).toList(),
-  });
-}
-
-class MainHomeShell extends StatefulWidget {
-  const MainHomeShell({super.key});
-
-  @override
-  State<MainHomeShell> createState() => _MainHomeShellState();
-}
-
-class _MainHomeShellState extends State<MainHomeShell> {
-  int _tabIndex = 0;
-  final _profileStore = SecureUserProfileStore();
-
-  @override
-  Widget build(BuildContext context) {
-    final pages = [
-      DocLaunchTab(profileStore: _profileStore),
-      CustomRulesTab(profileStore: _profileStore),
-      const GitHubAnalyzerTab(),
-    ];
-
-    return Scaffold(
-      body: IndexedStack(index: _tabIndex, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tabIndex,
-        onDestinationSelected: (idx) => setState(() => _tabIndex = idx),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.edit_document),
-            label: '网页快填',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.tune),
-            label: '自定义词条',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.hub_outlined),
-            label: 'GitHub分析',
-          ),
+    const defaultUIConfig = {
+        scheduledRefreshTime: "23:29:00",
+        startTime: "2026-11-19T23:29:00",
+        timing: { initialWait: 20, submitDelay: 0 },
+        fill: [
+            { key: "班级", value: "8" },
+            { key: "姓名", value: "张三" }
         ],
-      ),
-    );
-  }
-}
+        radio: [
+            { key: "学号", value: "12345" },
+            { key: "年级", value: "2024" }
+        ],
+        checkbox: [
+            { key: "时间", value: "星期一" }
+        ]
+    };
+    const savedConfig = JSON.parse(localStorage.getItem("txwd_ui_config") || "null");
+    const uiConfig = savedConfig || defaultUIConfig;
 
-/// 首页：粘贴任意收集表链接，进入内置浏览器一键填表
-class DocLaunchTab extends StatefulWidget {
-  final UserProfileStore profileStore;
-
-  const DocLaunchTab({super.key, required this.profileStore});
-
-  @override
-  State<DocLaunchTab> createState() => _DocLaunchTabState();
-}
-
-class _DocLaunchTabState extends State<DocLaunchTab> {
-  final _urlCtrl = TextEditingController();
-
-  void _openInWebView([String? presetUrl]) {
-    var raw = (presetUrl ?? _urlCtrl.text).trim();
-    if (raw.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先粘贴需要填写的文档或收集表链接')),
-      );
-      return;
-    }
-    if (!raw.startsWith('http://') && !raw.startsWith('https://')) {
-      raw = 'https://$raw';
-    }
-    _urlCtrl.text = raw;
-
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => WebFormFillPage(
-          initialUrl: raw,
-          profileStore: widget.profileStore,
-        ),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _urlCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('文档网页快填（免费本地版）')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children:
+    const style = `
+        .floating-panel {
+            position: fixed;
+            top: 8%;
+            right: 5%;
+            z-index: 10000;
+            width: 90%;
+            max-width: 350px;
+            background: linear-gradient(135deg, #ffecd2, #fcb69f);
+            border: 1px solid #ccc;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            font-size: 14px;
+            padding: 10px;
+            border-radius: 8px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .floating-panel h4 { margin: 0 0 10px; color: #333; }
+        .section { margin-bottom: 10px; }
+        .section-title { font-weight: bold; margin-bottom: 5px; color: #333; }
+        .entry { display: flex; gap: 5px; margin-bottom: 5px; flex-wrap: wrap; }
+        .entry input { flex: 1; max-width: 105px; font-size: 14px; padding: 3px; }
+        .floating-panel button { border: none; border-radius: 4px; padding: 5px; font-size: 14px; }
+        #countdown { font-weight: bold; color: #e74c3c; text-align: center; margin-bottom: 10px; }
+        #ui_toggleBtn {
+            position: fixed;
+            bottom: 24px;
+            right: 20px;
+            z-index: 11000;
+            background: linear-gradient(135deg, #6a11cb, #2575fc);
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 52px;
+            height: 52px;
+            font-size: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+        }
+    `;
+    const html = `
+        <div class="floating-panel" id="ui_panel">
+            <h4>腾讯文档自动填写面板</h4>
+            <div class="section">
+                <div class="section-title">时间设置</div>
+                <label>刷新时间（HH:MM:SS）：</label><br>
+                <input type="text" id="refreshTime" value="${uiConfig.scheduledRefreshTime}" style="width:100%;"><br><br>
+                <label>允许提交时间（YYYY-MM-DDTHH:MM:SS）：</label><br>
+                <input type="text" id="allowSubmitTime" value="${uiConfig.startTime}" style="width:100%;"><br><br>
+                <label>提交延迟 (毫秒)：</label><br>
+                <input type="number" id="submitDelay" value="${uiConfig.timing.submitDelay}" style="width:100%;"><br><br>
+                <div id="countdown">剩余时间：计算中...</div>
+            </div>
+            <hr>
+            <div class="section">
+                <div class="section-title">填空题配置</div>
+                <div id="fillContainer"></div>
+                <button id="addFill" style="background:#6a11cb;color:#fff;width:100%;">＋ 添加填空题</button>
+            </div>
+            <hr>
+            <div class="section">
+                <div class="section-title">单选题配置</div>
+                <div id="singleContainer"></div>
+                <button id="addSingle" style="background:#2575fc;color:#fff;width:100%;">＋ 添加单选题</button>
+            </div>
+            <hr>
+            <div class="section">
+                <div class="section-title">多选题配置</div>
+                <div id="multipleContainer"></div>
+                <button id="addMultiple" style="background:#e67e22;color:#fff;width:100%;">＋ 添加多选题</button>
+            </div>
+            <hr>
+            <button id="saveConfig" style="background:#28a745;color:#fff;width:48%;">保存配置</button>
+            <button id="resetConfig" style="background:#dc3545;color:#fff;width:48%;float:right;">重置默认</button>
+        </div>
+        <button i
