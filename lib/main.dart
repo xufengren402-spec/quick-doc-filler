@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,7 +27,7 @@ class QuickDocFillerApp extends StatelessWidget {
   }
 }
 
-/// 腾讯文档全自动填写 UI 脚本（融合自你上传的油猴脚本，打开 docs.qq.com/form/* 自动注入）
+/// 腾讯文档全自动填写 UI 脚本（打开 docs.qq.com/form/* 自动挂载）
 const String kTencentDocsUserScript = r'''
 (function() {
     'use strict';
@@ -37,37 +38,21 @@ const String kTencentDocsUserScript = r'''
         scheduledRefreshTime: "23:29:00",
         startTime: "2026-11-19T23:29:00",
         timing: { initialWait: 20, submitDelay: 0 },
-        fill: [
-            { key: "班级", value: "8" },
-            { key: "姓名", value: "张三" }
-        ],
-        radio: [
-            { key: "学号", value: "12345" },
-            { key: "年级", value: "2024" }
-        ],
-        checkbox: [
-            { key: "时间", value: "星期一" }
-        ]
+        fill: [{ key: "班级", value: "8" }, { key: "姓名", value: "张三" }],
+        radio: [{ key: "学号", value: "12345" }, { key: "年级", value: "2024" }],
+        checkbox: [{ key: "时间", value: "星期一" }]
     };
     const savedConfig = JSON.parse(localStorage.getItem("txwd_ui_config") || "null");
     const uiConfig = savedConfig || defaultUIConfig;
 
     const style = `
         .floating-panel {
-            position: fixed;
-            top: 8%;
-            right: 5%;
-            z-index: 10000;
-            width: 90%;
-            max-width: 350px;
+            position: fixed; top: 8%; right: 5%; z-index: 10000;
+            width: 90%; max-width: 350px;
             background: linear-gradient(135deg, #ffecd2, #fcb69f);
-            border: 1px solid #ccc;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            font-size: 14px;
-            padding: 10px;
-            border-radius: 8px;
-            max-height: 80vh;
-            overflow-y: auto;
+            border: 1px solid #ccc; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            font-size: 14px; padding: 10px; border-radius: 8px;
+            max-height: 80vh; overflow-y: auto;
         }
         .floating-panel h4 { margin: 0 0 10px; color: #333; }
         .section { margin-bottom: 10px; }
@@ -77,17 +62,10 @@ const String kTencentDocsUserScript = r'''
         .floating-panel button { border: none; border-radius: 4px; padding: 5px; font-size: 14px; }
         #countdown { font-weight: bold; color: #e74c3c; text-align: center; margin-bottom: 10px; }
         #ui_toggleBtn {
-            position: fixed;
-            bottom: 24px;
-            right: 20px;
-            z-index: 11000;
+            position: fixed; bottom: 24px; right: 20px; z-index: 11000;
             background: linear-gradient(135deg, #6a11cb, #2575fc);
-            color: #fff;
-            border: none;
-            border-radius: 50%;
-            width: 52px;
-            height: 52px;
-            font-size: 15px;
+            color: #fff; border: none; border-radius: 50%;
+            width: 52px; height: 52px; font-size: 15px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.35);
         }
     `;
@@ -343,7 +321,7 @@ const String kTencentDocsUserScript = r'''
 })();
 ''';
 
-/// 通用自定义自动填表规则模型（用于飞书、金山文档及其他网站）
+/// 通用自定义自动填表规则模型
 class CustomFillRule {
   final String title;
   final String keywords;
@@ -370,13 +348,14 @@ class CustomFillRule {
   }
 }
 
-List<CustomFillRule> defaultFillRules() => const [
-      CustomFillRule(title: '姓名', keywords: '姓名,名字,填报人,联系人,真实姓名,name', value: ''),
-      CustomFillRule(title: '手机号码', keywords: '手机,电话,联系方式,联系电话,mobile,phone,tel', value: ''),
-      CustomFillRule(title: '电子邮箱', keywords: '邮箱,电子邮箱,email,mail', value: ''),
-      CustomFillRule(title: '学号 / 工号', keywords: '学号,工号,编号,员工号,student', value: ''),
-      CustomFillRule(title: '部门 / 学院', keywords: '部门,学院,单位,班级,公司,专业,组织', value: ''),
-      CustomFillRule(title: '常用地址', keywords: '地址,住址,宿舍,address', value: ''),
+/// 返回可变列表（修复只读 const 列表导致无法保存修改的问题）
+List<CustomFillRule> defaultFillRules() => [
+      const CustomFillRule(title: '姓名', keywords: '姓名,名字,填报人,联系人,真实姓名,name', value: ''),
+      const CustomFillRule(title: '手机号码', keywords: '手机,电话,联系方式,联系电话,mobile,phone,tel', value: ''),
+      const CustomFillRule(title: '电子邮箱', keywords: '邮箱,电子邮箱,email,mail', value: ''),
+      const CustomFillRule(title: '学号 / 工号', keywords: '学号,工号,编号,员工号,student', value: ''),
+      const CustomFillRule(title: '部门 / 学院', keywords: '部门,学院,单位,班级,公司,专业,组织', value: ''),
+      const CustomFillRule(title: '常用地址', keywords: '地址,住址,宿舍,address', value: ''),
     ];
 
 Future<List<CustomFillRule>> loadFillRules(UserProfileStore store) async {
@@ -453,6 +432,9 @@ class DocLaunchTab extends StatefulWidget {
 
 class _DocLaunchTabState extends State<DocLaunchTab> {
   final _urlCtrl = TextEditingController();
+  final _scheduleTimeCtrl = TextEditingController(text: '23:29:00');
+  bool _autoFillOnLoad = true;
+  bool _enableSchedule = false;
 
   void _openInWebView([String? presetUrl]) {
     var raw = (presetUrl ?? _urlCtrl.text).trim();
@@ -472,6 +454,8 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
         builder: (_) => WebFormFillPage(
           initialUrl: raw,
           profileStore: widget.profileStore,
+          autoFillOnLoad: _autoFillOnLoad,
+          scheduledTime: _enableSchedule ? _scheduleTimeCtrl.text.trim() : null,
         ),
       ),
     );
@@ -480,13 +464,14 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
   @override
   void dispose() {
     _urlCtrl.dispose();
+    _scheduleTimeCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('文档网页快填（增强版）')),
+      appBar: AppBar(title: const Text('文档网页快填（自动/定时版）')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -500,12 +485,39 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
             onSubmitted: (_) => _openInWebView(),
           ),
           const SizedBox(height: 12),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('进入网页自动填写（无需手动点）'),
+            subtitle: const Text('页面加载完成后自动按自定义词条填入'),
+            value: _autoFillOnLoad,
+            onChanged: (v) => setState(() => _autoFillOnLoad = v),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('启用定时自动刷新并填表'),
+            subtitle: const Text('到设定时间自动刷新网页并瞬间自动填写'),
+            value: _enableSchedule,
+            onChanged: (v) => setState(() => _enableSchedule = v),
+          ),
+          if (_enableSchedule) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _scheduleTimeCtrl,
+              decoration: const InputDecoration(
+                labelText: '定时触发时间（24小时制 HH:MM:SS）',
+                hintText: '例如：23:29:00',
+                prefixIcon: Icon(Icons.schedule),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
               onPressed: () => _openInWebView(),
               icon: const Icon(Icons.open_in_browser),
-              label: const Text('打开网页并启用自动填表'),
+              label: Text(_enableSchedule ? '打开网页并启动定时填表' : '打开网页并自动填表'),
             ),
           ),
           const SizedBox(height: 20),
@@ -530,17 +542,6 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
               ),
             ],
           ),
-          const SizedBox(height: 24),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(14),
-              child: Text(
-                '双模式自动填表：\n'
-                '• 腾讯文档收集表（docs.qq.com/form/*）：加载完自动弹出右下角「配置」悬浮球，支持定时刷新倒计时、填空/单选/多选配置与定时自动提交。\n'
-                '• 飞书 / 金山文档 / 其他网站：点击右上角「一键填表」，自动按底部「自定义词条」填充。',
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -550,11 +551,15 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
 class WebFormFillPage extends StatefulWidget {
   final String initialUrl;
   final UserProfileStore profileStore;
+  final bool autoFillOnLoad;
+  final String? scheduledTime; // 格式 HH:MM:SS
 
   const WebFormFillPage({
     super.key,
     required this.initialUrl,
     required this.profileStore,
+    this.autoFillOnLoad = true,
+    this.scheduledTime,
   });
 
   @override
@@ -564,6 +569,9 @@ class WebFormFillPage extends StatefulWidget {
 class _WebFormFillPageState extends State<WebFormFillPage> {
   late final WebViewController _controller;
   int _progress = 0;
+  Timer? _scheduleTimer;
+  String? _countdownText;
+  bool _pendingScheduledFill = false;
 
   @override
   void initState() {
@@ -576,17 +584,79 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
             if (mounted) setState(() => _progress = p);
           },
           onPageFinished: (url) async {
-            // 打开腾讯文档收集表时，自动挂载全自动填写控制面板
+            // 腾讯文档收集表自动挂载悬浮配置面板
             if (url.contains('docs.qq.com/form')) {
               await _controller.runJavaScript(kTencentDocsUserScript);
+            }
+            // 进入网页自动填表，或定时刷新触发后的自动填表
+            if (widget.autoFillOnLoad || _pendingScheduledFill) {
+              _pendingScheduledFill = false;
+              await _autoFillWithRetry();
             }
           },
         ),
       )
       ..loadRequest(Uri.parse(widget.initialUrl));
+
+    if (widget.scheduledTime != null && widget.scheduledTime!.isNotEmpty) {
+      _startScheduleCountdown(widget.scheduledTime!);
+    }
   }
 
-  Future<void> _autoFillCurrentPage() async {
+  /// 启动定时刷新倒计时，到点自动 reload 并在加载完成瞬间自动填写
+  void _startScheduleCountdown(String timeStr) {
+    final parts = timeStr.split(':').map((e) => int.tryParse(e.trim()) ?? 0).toList();
+    if (parts.length < 2) return;
+    final now = DateTime.now();
+    var target = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      parts[0].clamp(0, 23),
+      parts[1].clamp(0, 59),
+      parts.length > 2 ? parts[2].clamp(0, 59) : 0,
+    );
+    if (!target.isAfter(now)) {
+      target = target.add(const Duration(days: 1));
+    }
+
+    _scheduleTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final diff = target.difference(DateTime.now());
+      if (diff.inMilliseconds <= 0) {
+        timer.cancel();
+        setState(() {
+          _countdownText = '已到点！正在自动刷新并填写...';
+          _pendingScheduledFill = true;
+        });
+        _controller.reload();
+      } else {
+        final h = diff.inHours.toString().padLeft(2, '0');
+        final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
+        final s = (diff.inSeconds % 60).toString().padLeft(2, '0');
+        setState(() {
+          _countdownText = '距离 ${widget.scheduledTime} 自动刷新填表还剩 $h:$m:$s';
+        });
+      }
+    });
+  }
+
+  /// 针对异步渲染的网页表单，在加载完 0.8 秒和 2.2 秒自动探测填充
+  Future<void> _autoFillWithRetry() async {
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    if (!mounted) return;
+    final firstCount = await _autoFillCurrentPage(silentIfZero: true);
+    if (firstCount == 0 && mounted) {
+      await Future<void>.delayed(const Duration(milliseconds: 1400));
+      if (!mounted) return;
+      await _autoFillCurrentPage(silentIfZero: true);
+    }
+  }
+
+  Future<int> _autoFillCurrentPage({bool silentIfZero = false}) async {
     final allRules = await loadFillRules(widget.profileStore);
     final activeRules = allRules
         .where((r) => r.value.trim().isNotEmpty && r.keywords.trim().isNotEmpty)
@@ -601,12 +671,12 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
         .toList();
 
     if (activeRules.isEmpty) {
-      if (mounted) {
+      if (!silentIfZero && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('请先在「自定义词条」中填写至少一项内容')),
         );
       }
-      return;
+      return 0;
     }
 
     final rulesJson = jsonEncode(activeRules);
@@ -682,24 +752,32 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
     try {
       final result = await _controller.runJavaScriptReturningResult(js);
       final count = int.tryParse(result.toString()) ?? 0;
-      if (mounted) {
+      if (mounted && (count > 0 || !silentIfZero)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               count > 0
-                  ? '已按你的词条自动填充 $count 个字段，请核对后提交'
-                  : '未匹配到输入框，腾讯文档请点右下角「配置」悬浮球',
+                  ? '已自动填充 $count 个字段，请核对后提交'
+                  : '未匹配到输入框，可在「自定义词条」里补充题干关键词',
             ),
           ),
         );
       }
+      return count;
     } catch (e) {
-      if (mounted) {
+      if (!silentIfZero && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('自动填充执行失败：$e')),
         );
       }
+      return 0;
     }
+  }
+
+  @override
+  void dispose() {
+    _scheduleTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -716,15 +794,43 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilledButton.icon(
-              onPressed: _autoFillCurrentPage,
+              onPressed: () => _autoFillCurrentPage(silentIfZero: false),
               icon: const Icon(Icons.auto_fix_high, size: 18),
-              label: const Text('一键填表'),
+              label: const Text('手动补填'),
             ),
           ),
         ],
       ),
       body: Column(
         children: [
+          if (_countdownText != null)
+            Container(
+              width: double.infinity,
+              color: Colors.amber.shade100,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.timer, size: 18, color: Colors.deepOrange),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _countdownText!,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.deepOrange,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      _scheduleTimer?.cancel();
+                      setState(() => _countdownText = null);
+                    },
+                    child: const Text('取消'),
+                  ),
+                ],
+              ),
+            ),
           if (_progress < 100)
             LinearProgressIndicator(value: _progress / 100.0),
           Expanded(child: WebViewWidget(controller: _controller)),
@@ -756,14 +862,22 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
     final rules = await loadFillRules(widget.profileStore);
     if (mounted) {
       setState(() {
-        _rules = rules;
+        _rules = List<CustomFillRule>.from(rules);
         _loading = false;
       });
     }
   }
 
   Future<void> _persist() async {
-    await saveFillRules(widget.profileStore, _rules);
+    try {
+      await saveFillRules(widget.profileStore, _rules);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败：$e')),
+        );
+      }
+    }
   }
 
   Future<void> _showRuleEditor({int? editIndex}) async {
