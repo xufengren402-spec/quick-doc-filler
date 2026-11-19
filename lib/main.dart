@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quick_doc_filler/core/storage/secure_token_store.dart';
 import 'package:quick_doc_filler/features/doc_prefill/data/adapters/platform_adapters.dart';
@@ -93,12 +92,27 @@ class DocPrefillTab extends StatefulWidget {
 
 class _DocPrefillTabState extends State<DocPrefillTab> {
   final _urlCtrl = TextEditingController();
-  final _formKey = GlobalKey<FormBuilderState>();
+  final _formKey = GlobalKey<FormState>();
+  final Map<String, TextEditingController> _fieldControllers = {};
   DocPlatform? _detectedPlatform;
   List<UnifiedDocField> _fields = [];
   Map<String, dynamic> _prefilled = {};
   bool _loading = false;
   bool _submitting = false;
+
+  void _clearFieldControllers() {
+    for (final c in _fieldControllers.values) {
+      c.dispose();
+    }
+    _fieldControllers.clear();
+  }
+
+  void _applyPrefillValues() {
+    for (final field in _fields) {
+      final value = _prefilled[field.fieldId]?.toString() ?? '';
+      _fieldControllers[field.fieldId]?.text = value;
+    }
+  }
 
   Future<void> _parseDocUrl([String? presetUrl]) async {
     final url = (presetUrl ?? _urlCtrl.text).trim();
@@ -120,14 +134,17 @@ class _DocPrefillTabState extends State<DocPrefillTab> {
       final fields = await adapter.fetchFields(url);
       final result = await engine.execute(docUrl: url, autoSubmit: false);
 
+      _clearFieldControllers();
+      for (final field in fields) {
+        _fieldControllers[field.fieldId] = TextEditingController(
+          text: result.prefilledData[field.fieldId]?.toString() ?? '',
+        );
+      }
+
       setState(() {
         _detectedPlatform = adapter.platform;
         _fields = fields;
         _prefilled = result.prefilledData;
-      });
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _formKey.currentState?.patchValue(_prefilled);
       });
     } catch (e) {
       if (mounted) {
@@ -141,14 +158,15 @@ class _DocPrefillTabState extends State<DocPrefillTab> {
   }
 
   Future<void> _submitForm() async {
-    if (!(_formKey.currentState?.saveAndValidate() ?? false)) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _submitting = true);
     try {
       final adapter = widget.router.resolve(_urlCtrl.text.trim());
-      final ok = await adapter.submitRecord(
-        _urlCtrl.text.trim(),
-        _formKey.currentState!.value,
-      );
+      final payload = {
+        for (final field in _fields)
+          field.fieldId: _fieldControllers[field.fieldId]?.text.trim() ?? '',
+      };
+      final ok = await adapter.submitRecord(_urlCtrl.text.trim(), payload);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(ok ? '文档表单提交成功' : '提交失败，请重试')),
@@ -162,6 +180,7 @@ class _DocPrefillTabState extends State<DocPrefillTab> {
   @override
   void dispose() {
     _urlCtrl.dispose();
+    _clearFieldControllers();
     super.dispose();
   }
 
@@ -216,24 +235,23 @@ class _DocPrefillTabState extends State<DocPrefillTab> {
               children: [
                 Chip(label: Text(_detectedPlatform?.displayName ?? '')),
                 TextButton.icon(
-                  onPressed: () => _formKey.currentState?.patchValue(_prefilled),
+                  onPressed: _applyPrefillValues,
                   icon: const Icon(Icons.auto_fix_high),
                   label: const Text('重新预填充'),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            FormBuilder(
+            Form(
               key: _formKey,
-              initialValue: _prefilled,
               child: Column(
                 children: [
                   ..._fields.map((field) {
                     final matched = _prefilled.containsKey(field.fieldId);
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: FormBuilderTextField(
-                        name: field.fieldId,
+                      child: TextFormField(
+                        controller: _fieldControllers[field.fieldId],
                         decoration: InputDecoration(
                           labelText:
                               field.required ? '${field.label} *' : field.label,
