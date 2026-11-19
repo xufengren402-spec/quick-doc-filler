@@ -27,301 +27,7 @@ class QuickDocFillerApp extends StatelessWidget {
   }
 }
 
-/// 腾讯文档全自动填写 UI 脚本（打开 docs.qq.com/form/* 自动挂载）
-const String kTencentDocsUserScript = r'''
-(function() {
-    'use strict';
-    if (window.__txwd_ui_injected) return;
-    window.__txwd_ui_injected = true;
-
-    const defaultUIConfig = {
-        scheduledRefreshTime: "23:29:00",
-        startTime: "2026-11-19T23:29:00",
-        timing: { initialWait: 20, submitDelay: 0 },
-        fill: [{ key: "班级", value: "8" }, { key: "姓名", value: "张三" }],
-        radio: [{ key: "学号", value: "12345" }, { key: "年级", value: "2024" }],
-        checkbox: [{ key: "时间", value: "星期一" }]
-    };
-    const savedConfig = JSON.parse(localStorage.getItem("txwd_ui_config") || "null");
-    const uiConfig = savedConfig || defaultUIConfig;
-
-    const style = `
-        .floating-panel {
-            position: fixed; top: 8%; right: 5%; z-index: 10000;
-            width: 90%; max-width: 350px;
-            background: linear-gradient(135deg, #ffecd2, #fcb69f);
-            border: 1px solid #ccc; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            font-size: 14px; padding: 10px; border-radius: 8px;
-            max-height: 80vh; overflow-y: auto;
-        }
-        .floating-panel h4 { margin: 0 0 10px; color: #333; }
-        .section { margin-bottom: 10px; }
-        .section-title { font-weight: bold; margin-bottom: 5px; color: #333; }
-        .entry { display: flex; gap: 5px; margin-bottom: 5px; flex-wrap: wrap; }
-        .entry input { flex: 1; max-width: 105px; font-size: 14px; padding: 3px; }
-        .floating-panel button { border: none; border-radius: 4px; padding: 5px; font-size: 14px; }
-        #countdown { font-weight: bold; color: #e74c3c; text-align: center; margin-bottom: 10px; }
-        #ui_toggleBtn {
-            position: fixed; bottom: 24px; right: 20px; z-index: 11000;
-            background: linear-gradient(135deg, #6a11cb, #2575fc);
-            color: #fff; border: none; border-radius: 50%;
-            width: 52px; height: 52px; font-size: 15px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-        }
-    `;
-    const html = `
-        <div class="floating-panel" id="ui_panel">
-            <h4>腾讯文档自动填写面板</h4>
-            <div class="section">
-                <div class="section-title">时间设置</div>
-                <label>刷新时间（HH:MM:SS）：</label><br>
-                <input type="text" id="refreshTime" value="${uiConfig.scheduledRefreshTime}" style="width:100%;"><br><br>
-                <label>允许提交时间（YYYY-MM-DDTHH:MM:SS）：</label><br>
-                <input type="text" id="allowSubmitTime" value="${uiConfig.startTime}" style="width:100%;"><br><br>
-                <label>提交延迟 (毫秒)：</label><br>
-                <input type="number" id="submitDelay" value="${uiConfig.timing.submitDelay}" style="width:100%;"><br><br>
-                <div id="countdown">剩余时间：计算中...</div>
-            </div>
-            <hr>
-            <div class="section">
-                <div class="section-title">填空题配置</div>
-                <div id="fillContainer"></div>
-                <button id="addFill" style="background:#6a11cb;color:#fff;width:100%;">＋ 添加填空题</button>
-            </div>
-            <hr>
-            <div class="section">
-                <div class="section-title">单选题配置</div>
-                <div id="singleContainer"></div>
-                <button id="addSingle" style="background:#2575fc;color:#fff;width:100%;">＋ 添加单选题</button>
-            </div>
-            <hr>
-            <div class="section">
-                <div class="section-title">多选题配置</div>
-                <div id="multipleContainer"></div>
-                <button id="addMultiple" style="background:#e67e22;color:#fff;width:100%;">＋ 添加多选题</button>
-            </div>
-            <hr>
-            <button id="saveConfig" style="background:#28a745;color:#fff;width:48%;">保存配置</button>
-            <button id="resetConfig" style="background:#dc3545;color:#fff;width:48%;float:right;">重置默认</button>
-        </div>
-        <button id="ui_toggleBtn">配置</button>
-    `;
-    const styleTag = document.createElement('style');
-    styleTag.textContent = style;
-    document.head.appendChild(styleTag);
-    const panelContainer = document.createElement('div');
-    panelContainer.innerHTML = html;
-    document.body.appendChild(panelContainer);
-
-    const uiPanel = document.getElementById('ui_panel');
-    const toggleBtn = document.getElementById('ui_toggleBtn');
-    uiPanel.style.display = 'none';
-    toggleBtn.addEventListener('click', () => {
-        uiPanel.style.display = uiPanel.style.display === 'none' ? 'block' : 'none';
-    });
-
-    function createEntry(containerId, k = '', v = '') {
-        const container = document.getElementById(containerId);
-        const div = document.createElement('div');
-        div.className = 'entry';
-        div.innerHTML = `
-            <input type="text" placeholder="题目关键词" value="${k}">
-            <input type="text" placeholder="答案" value="${v}">
-            <button class="remove">删除</button>
-        `;
-        div.querySelector('.remove').onclick = () => div.remove();
-        container.appendChild(div);
-    }
-
-    document.getElementById('addFill').addEventListener('click', () => createEntry('fillContainer'));
-    document.getElementById('addSingle').addEventListener('click', () => createEntry('singleContainer'));
-    document.getElementById('addMultiple').addEventListener('click', () => createEntry('multipleContainer'));
-
-    (uiConfig.fill || []).forEach(i => createEntry('fillContainer', i.key, i.value));
-    (uiConfig.radio || []).forEach(i => createEntry('singleContainer', i.key, i.value));
-    (uiConfig.checkbox || []).forEach(i => createEntry('multipleContainer', i.key, i.value));
-
-    function collectEntries(cid) {
-        return Array.from(document.getElementById(cid).querySelectorAll('.entry')).map(div => ({
-            key: div.querySelector('input:nth-child(1)').value.trim(),
-            value: div.querySelector('input:nth-child(2)').value.trim()
-        })).filter(item => item.key);
-    }
-
-    document.getElementById('saveConfig').addEventListener('click', () => {
-        const newCfg = {
-            scheduledRefreshTime: document.getElementById('refreshTime').value,
-            startTime: document.getElementById('allowSubmitTime').value,
-            timing: {
-                initialWait: 20,
-                submitDelay: parseInt(document.getElementById('submitDelay').value) || 0
-            },
-            fill: collectEntries('fillContainer'),
-            radio: collectEntries('singleContainer'),
-            checkbox: collectEntries('multipleContainer')
-        };
-        localStorage.setItem("txwd_ui_config", JSON.stringify(newCfg));
-        alert("配置保存成功，刷新页面后生效！");
-    });
-
-    document.getElementById('resetConfig').addEventListener('click', () => {
-        localStorage.removeItem("txwd_ui_config");
-        alert("已重置默认配置，刷新页面后恢复默认！");
-    });
-
-    let refreshTimer, nextRefreshTime;
-    const todayKey = new Date().toISOString().slice(0, 10);
-    const refreshedToday = sessionStorage.getItem('txwd_refreshedDate') === todayKey;
-
-    function updateNextRefreshTime() {
-        const parts = document.getElementById('refreshTime').value.split(':').map(Number);
-        const now = new Date();
-        nextRefreshTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parts[0] || 0, parts[1] || 0, parts[2] || 0);
-        if (nextRefreshTime <= now) nextRefreshTime.setDate(nextRefreshTime.getDate() + 1);
-    }
-    updateNextRefreshTime();
-
-    function startCountdown() {
-        const cd = document.getElementById('countdown');
-        if (refreshedToday) {
-            cd.textContent = '今日已刷新';
-            return;
-        }
-        clearInterval(refreshTimer);
-        refreshTimer = setInterval(() => {
-            const diff = Math.floor((nextRefreshTime - new Date()) / 1000);
-            if (diff > 0) {
-                cd.textContent = `剩余时间：${diff} 秒`;
-            } else {
-                cd.textContent = '正在刷新...';
-                clearInterval(refreshTimer);
-                sessionStorage.setItem('txwd_refreshedDate', todayKey);
-                location.reload();
-            }
-        }, 1000);
-    }
-    startCountdown();
-    document.getElementById('refreshTime').addEventListener('change', () => {
-        sessionStorage.removeItem('txwd_refreshedDate');
-        updateNextRefreshTime();
-        startCountdown();
-    });
-
-    const stored = JSON.parse(localStorage.getItem("txwd_ui_config") || "null") || defaultUIConfig;
-    const answers = {};
-    (stored.fill || []).forEach(i => i.key && (answers[i.key] = i.value));
-    (stored.radio || []).forEach(i => i.key && (answers[i.key] = i.value));
-    (stored.checkbox || []).forEach(i => {
-        if (i.key) {
-            const arr = i.value.split(/[,，]/).map(s => s.trim()).filter(Boolean);
-            answers[i.key] = { answers: arr, select: { count: arr.length, mode: "random" } };
-        }
-    });
-    const config = {
-        scheduledRefreshTime: stored.scheduledRefreshTime,
-        startTime: stored.startTime,
-        timing: stored.timing,
-        answers
-    };
-
-    class FormFiller {
-        async execute() {
-            await this.waitForPageReady();
-            await this.fillAllQuestions();
-            await this.handleSubmission();
-        }
-        waitForPageReady() {
-            return new Promise(res => {
-                const ck = setInterval(() => {
-                    if (document.querySelector('.question')) {
-                        clearInterval(ck);
-                        setTimeout(res, config.timing.initialWait);
-                    }
-                }, 200);
-            });
-        }
-        fuzzyMatch(a, b) {
-            if (!a || !b) return false;
-            const normalize = str => str.toLowerCase().replace(/[^\w\u4e00-\u9fa5]/g, '').trim();
-            return normalize(b).includes(normalize(a));
-        }
-        async fillInput(q, v) {
-            const inp = q.querySelector('textarea') || q.querySelector('input');
-            if (!inp) return;
-            inp.focus();
-            const proto = inp.tagName === 'TEXTAREA'
-                ? window.HTMLTextAreaElement.prototype
-                : window.HTMLInputElement.prototype;
-            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-            if (setter) setter.call(inp, String(v));
-            else inp.value = String(v);
-            ['input', 'change', 'blur'].forEach(e => inp.dispatchEvent(new Event(e, { bubbles: true })));
-        }
-        handleRadio(q, cfg) {
-            const opts = Array.from(q.querySelectorAll('[role="radio"]'));
-            const target = cfg.answer || cfg;
-            const match = opts.find(o => {
-                const txt = o.querySelector('.form-choice-option-text-content')?.textContent || o.textContent;
-                return txt && this.fuzzyMatch(target, txt);
-            });
-            if (match) match.click();
-        }
-        handleCheckbox(q, cfg) {
-            const opts = Array.from(q.querySelectorAll('[role="checkbox"]'));
-            const arr = cfg.answers || [];
-            const sel = opts.filter(o => {
-                const txt = o.querySelector('.form-choice-option-text-content')?.textContent || o.textContent;
-                return txt && arr.some(a => this.fuzzyMatch(a, txt));
-            });
-            sel.slice(0, cfg.select.count).forEach(o => o.click());
-        }
-        async fillAllQuestions() {
-            for (const q of document.querySelectorAll('.question')) {
-                const title = q.querySelector('.question-title')?.textContent;
-                if (!title) continue;
-                for (const [k, v] of Object.entries(config.answers)) {
-                    if (!this.fuzzyMatch(k, title)) continue;
-                    if (q.querySelector('textarea') || q.querySelector('input[type="text"]')) {
-                        await this.fillInput(q, v);
-                    } else if (q.querySelector('[role="radio"]')) {
-                        this.handleRadio(q, v);
-                    } else if (q.querySelector('[role="checkbox"]')) {
-                        this.handleCheckbox(q, v);
-                    }
-                }
-            }
-        }
-        async handleSubmission() {
-            await new Promise(r => setTimeout(r, config.timing.submitDelay));
-            if (new Date() < new Date(config.startTime)) return;
-            const btn = document.querySelector('.question-commit button');
-            if (btn && !btn.disabled) {
-                btn.click();
-                await this.handleConfirm();
-            }
-        }
-        async handleConfirm() {
-            return new Promise(res => {
-                let attempts = 0;
-                const ck = setInterval(() => {
-                    const cbtn = document.querySelector('.dui-modal-footer-ok:not([disabled])');
-                    if (cbtn) {
-                        clearInterval(ck);
-                        cbtn.click();
-                        setTimeout(() => { location.reload(); res(); }, 500);
-                    } else if (++attempts > 8) {
-                        clearInterval(ck);
-                        res();
-                    }
-                }, 300);
-            });
-        }
-    }
-    new FormFiller().execute();
-})();
-''';
-
-/// 通用自定义自动填表规则模型
+/// 自定义自动填表规则模型（同时支持填空、单选、多选）
 class CustomFillRule {
   final String title;
   final String keywords;
@@ -348,13 +54,12 @@ class CustomFillRule {
   }
 }
 
-/// 返回可变列表（修复只读 const 列表导致无法保存修改的问题）
 List<CustomFillRule> defaultFillRules() => [
       const CustomFillRule(title: '姓名', keywords: '姓名,名字,填报人,联系人,真实姓名,name', value: ''),
       const CustomFillRule(title: '手机号码', keywords: '手机,电话,联系方式,联系电话,mobile,phone,tel', value: ''),
       const CustomFillRule(title: '电子邮箱', keywords: '邮箱,电子邮箱,email,mail', value: ''),
       const CustomFillRule(title: '学号 / 工号', keywords: '学号,工号,编号,员工号,student', value: ''),
-      const CustomFillRule(title: '部门 / 学院', keywords: '部门,学院,单位,班级,公司,专业,组织', value: ''),
+      const CustomFillRule(title: '班级 / 部门 / 学院', keywords: '班级,部门,学院,单位,公司,专业,年级,组织', value: ''),
       const CustomFillRule(title: '常用地址', keywords: '地址,住址,宿舍,address', value: ''),
     ];
 
@@ -434,6 +139,7 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
   final _urlCtrl = TextEditingController();
   final _scheduleTimeCtrl = TextEditingController(text: '23:29:00');
   bool _autoFillOnLoad = true;
+  bool _autoSubmit = true;
   bool _enableSchedule = false;
 
   void _openInWebView([String? presetUrl]) {
@@ -455,6 +161,7 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
           initialUrl: raw,
           profileStore: widget.profileStore,
           autoFillOnLoad: _autoFillOnLoad,
+          autoSubmit: _autoSubmit,
           scheduledTime: _enableSchedule ? _scheduleTimeCtrl.text.trim() : null,
         ),
       ),
@@ -471,7 +178,7 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('文档网页快填（自动/定时版）')),
+      appBar: AppBar(title: const Text('文档全自动填报')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -484,18 +191,24 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
             ),
             onSubmitted: (_) => _openInWebView(),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('进入网页自动填写（无需手动点）'),
-            subtitle: const Text('页面加载完成后自动按自定义词条填入'),
+            title: const Text('进入网页自动填写（等待题目出现即填）'),
             value: _autoFillOnLoad,
             onChanged: (v) => setState(() => _autoFillOnLoad = v),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('启用定时自动刷新并填表'),
-            subtitle: const Text('到设定时间自动刷新网页并瞬间自动填写'),
+            title: const Text('填完后自动点击提交'),
+            subtitle: const Text('自动点击网页提交按钮及腾讯文档确认弹窗'),
+            value: _autoSubmit,
+            onChanged: (v) => setState(() => _autoSubmit = v),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('启用定时刷新并自动填报'),
+            subtitle: const Text('到设定时间自动刷新页面、填表并提交'),
             value: _enableSchedule,
             onChanged: (v) => setState(() => _enableSchedule = v),
           ),
@@ -516,8 +229,8 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
             width: double.infinity,
             child: FilledButton.icon(
               onPressed: () => _openInWebView(),
-              icon: const Icon(Icons.open_in_browser),
-              label: Text(_enableSchedule ? '打开网页并启动定时填表' : '打开网页并自动填表'),
+              icon: const Icon(Icons.rocket_launch_outlined),
+              label: Text(_enableSchedule ? '打开网页并启动定时填报' : '打开网页并全自动填报'),
             ),
           ),
           const SizedBox(height: 20),
@@ -552,13 +265,15 @@ class WebFormFillPage extends StatefulWidget {
   final String initialUrl;
   final UserProfileStore profileStore;
   final bool autoFillOnLoad;
-  final String? scheduledTime; // 格式 HH:MM:SS
+  final bool autoSubmit;
+  final String? scheduledTime;
 
   const WebFormFillPage({
     super.key,
     required this.initialUrl,
     required this.profileStore,
     this.autoFillOnLoad = true,
+    this.autoSubmit = true,
     this.scheduledTime,
   });
 
@@ -571,42 +286,58 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
   int _progress = 0;
   Timer? _scheduleTimer;
   String? _countdownText;
-  bool _pendingScheduledFill = false;
+  String _statusBanner = '正在加载网页...';
+  bool _waitingForSchedule = false;
 
   @override
   void initState() {
     super.initState();
+    _waitingForSchedule =
+        widget.scheduledTime != null && widget.scheduledTime!.isNotEmpty;
+
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..addJavaScriptChannel(
+        'AppBridge',
+        onMessageReceived: (JavaScriptMessage message) {
+          if (!mounted) return;
+          setState(() => _statusBanner = message.message);
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (p) {
             if (mounted) setState(() => _progress = p);
           },
           onPageFinished: (url) async {
-            // 腾讯文档收集表自动挂载悬浮配置面板
-            if (url.contains('docs.qq.com/form')) {
-              await _controller.runJavaScript(kTencentDocsUserScript);
+            if (!mounted) return;
+            // 若正在等待定时触发，先只停在页面等待倒计时结束刷新
+            if (_waitingForSchedule) {
+              setState(() => _statusBanner = '网页已就绪，等待到点自动刷新并填报...');
+              return;
             }
-            // 进入网页自动填表，或定时刷新触发后的自动填表
-            if (widget.autoFillOnLoad || _pendingScheduledFill) {
-              _pendingScheduledFill = false;
-              await _autoFillWithRetry();
+            if (widget.autoFillOnLoad) {
+              await _injectAutoFillEngine(autoSubmit: widget.autoSubmit);
+            } else {
+              setState(() => _statusBanner = '网页加载完成，可点击右上角「立即填报」');
             }
           },
         ),
       )
       ..loadRequest(Uri.parse(widget.initialUrl));
 
-    if (widget.scheduledTime != null && widget.scheduledTime!.isNotEmpty) {
+    if (_waitingForSchedule) {
       _startScheduleCountdown(widget.scheduledTime!);
     }
   }
 
-  /// 启动定时刷新倒计时，到点自动 reload 并在加载完成瞬间自动填写
   void _startScheduleCountdown(String timeStr) {
-    final parts = timeStr.split(':').map((e) => int.tryParse(e.trim()) ?? 0).toList();
-    if (parts.length < 2) return;
+    final parts =
+        timeStr.split(':').map((e) => int.tryParse(e.trim()) ?? 0).toList();
+    if (parts.length < 2) {
+      _waitingForSchedule = false;
+      return;
+    }
     final now = DateTime.now();
     var target = DateTime(
       now.year,
@@ -629,8 +360,8 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
       if (diff.inMilliseconds <= 0) {
         timer.cancel();
         setState(() {
-          _countdownText = '已到点！正在自动刷新并填写...';
-          _pendingScheduledFill = true;
+          _waitingForSchedule = false;
+          _countdownText = '已到点！正在自动刷新并执行填报...';
         });
         _controller.reload();
       } else {
@@ -638,29 +369,19 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
         final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
         final s = (diff.inSeconds % 60).toString().padLeft(2, '0');
         setState(() {
-          _countdownText = '距离 ${widget.scheduledTime} 自动刷新填表还剩 $h:$m:$s';
+          _countdownText = '距离 ${widget.scheduledTime} 自动刷新填报还剩 $h:$m:$s';
         });
       }
     });
   }
 
-  /// 针对异步渲染的网页表单，在加载完 0.8 秒和 2.2 秒自动探测填充
-  Future<void> _autoFillWithRetry() async {
-    await Future<void>.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    final firstCount = await _autoFillCurrentPage(silentIfZero: true);
-    if (firstCount == 0 && mounted) {
-      await Future<void>.delayed(const Duration(milliseconds: 1400));
-      if (!mounted) return;
-      await _autoFillCurrentPage(silentIfZero: true);
-    }
-  }
-
-  Future<int> _autoFillCurrentPage({bool silentIfZero = false}) async {
+  /// 注入统一自动填表+自动提交引擎（持续轮询等待表单渲染，适配腾讯文档/飞书/金山/通用网页）
+  Future<void> _injectAutoFillEngine({required bool autoSubmit}) async {
     final allRules = await loadFillRules(widget.profileStore);
     final activeRules = allRules
         .where((r) => r.value.trim().isNotEmpty && r.keywords.trim().isNotEmpty)
         .map((r) => {
+              'title': r.title,
               'words': r.keywords
                   .split(RegExp(r'[,，、/\s]+'))
                   .map((w) => w.trim().toLowerCase())
@@ -671,107 +392,193 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
         .toList();
 
     if (activeRules.isEmpty) {
-      if (!silentIfZero && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('请先在「自定义词条」中填写至少一项内容')),
-        );
-      }
-      return 0;
+      setState(() => _statusBanner = '未检测到已填写的词条，请先去「自定义词条」保存内容');
+      return;
     }
 
+    setState(() => _statusBanner = '正在等待网页表单题目渲染...');
     final rulesJson = jsonEncode(activeRules);
+
     final js = '''
-(function(rules) {
-  function setNativeValue(el, value) {
+(function(rules, shouldSubmit) {
+  function report(msg) {
+    try { if (window.AppBridge) window.AppBridge.postMessage(msg); } catch (e) {}
+  }
+
+  function norm(s) {
+    return (s || '').toLowerCase().replace(/[^\\w\\u4e00-\\u9fa5]/g, '');
+  }
+
+  function matchRule(text) {
+    const clean = norm(text);
+    if (!clean) return null;
+    let best = null;
+    let bestLen = 0;
+    for (const r of rules) {
+      for (const w of r.words) {
+        const cw = norm(w);
+        if (cw && clean.includes(cw) && cw.length > bestLen) {
+          bestLen = cw.length;
+          best = r.value;
+        }
+      }
+    }
+    return best;
+  }
+
+  function setNativeValue(el, val) {
+    el.focus();
     const proto = el.tagName === 'TEXTAREA'
       ? window.HTMLTextAreaElement.prototype
       : window.HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-    if (setter) setter.call(el, value);
-    else el.value = value;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new Event('blur', { bubbles: true }));
+    if (setter) setter.call(el, val);
+    else el.value = val;
+    ['input', 'change', 'blur'].forEach(ev =>
+      el.dispatchEvent(new Event(ev, { bubbles: true }))
+    );
   }
 
-  function getContextText(el) {
-    let parts = [
-      el.getAttribute('placeholder') || '',
-      el.getAttribute('aria-label') || '',
-      el.getAttribute('name') || '',
-      el.getAttribute('id') || ''
-    ];
-    let parent = el.parentElement;
-    for (let i = 0; i < 4 && parent; i++) {
-      const txt = (parent.innerText || '').trim();
-      if (txt.length > 0 && txt.length < 150) {
-        parts.push(txt);
-        break;
-      }
-      parent = parent.parentElement;
+  function fillFormOnce() {
+    let filled = 0;
+
+    // 1. 优先适配腾讯文档收集表结构（支持填空 + 单选 + 多选）
+    const questions = document.querySelectorAll('.question');
+    if (questions.length > 0) {
+      questions.forEach(q => {
+        const titleEl = q.querySelector('.question-title') || q;
+        const val = matchRule(titleEl.textContent || '');
+        if (!val) return;
+
+        const inp = q.querySelector('textarea, input[type="text"], input:not([type])');
+        if (inp) {
+          setNativeValue(inp, val);
+          filled++;
+          return;
+        }
+
+        const radios = Array.from(q.querySelectorAll('[role="radio"]'));
+        if (radios.length > 0) {
+          const target = radios.find(o => {
+            const t = o.querySelector('.form-choice-option-text-content')?.textContent || o.textContent || '';
+            return norm(t).includes(norm(val));
+          });
+          if (target) { target.click(); filled++; }
+          return;
+        }
+
+        const checks = Array.from(q.querySelectorAll('[role="checkbox"]'));
+        if (checks.length > 0) {
+          const wanted = val.split(/[,，、]/).map(s => norm(s)).filter(Boolean);
+          checks.forEach(o => {
+            const t = o.querySelector('.form-choice-option-text-content')?.textContent || o.textContent || '';
+            if (wanted.some(w => norm(t).includes(w))) {
+              o.click();
+              filled++;
+            }
+          });
+        }
+      });
     }
-    return parts.join(' ').toLowerCase();
+
+    // 2. 通用网页表单兜底（飞书、金山文档、问卷星等）
+    if (filled === 0) {
+      const inputs = document.querySelectorAll('input, textarea, [contenteditable="true"]');
+      inputs.forEach(el => {
+        const type = (el.getAttribute('type') || '').toLowerCase();
+        if (['hidden', 'submit', 'button', 'checkbox', 'radio', 'file', 'password'].includes(type)) return;
+        if (el.offsetParent === null) return;
+
+        let ctx = [
+          el.getAttribute('placeholder') || '',
+          el.getAttribute('aria-label') || '',
+          el.getAttribute('name') || '',
+          el.getAttribute('id') || ''
+        ];
+        let p = el.parentElement;
+        for (let i = 0; i < 7 && p; i++) {
+          const t = (p.innerText || '').trim();
+          if (t.length > 0 && t.length < 300) { ctx.push(t); break; }
+          p = p.parentElement;
+        }
+        const val = matchRule(ctx.join(' '));
+        if (!val) return;
+
+        if (el.getAttribute('contenteditable') === 'true') {
+          el.innerText = val;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          setNativeValue(el, val);
+        }
+        filled++;
+      });
+    }
+    return filled;
   }
 
-  let filledCount = 0;
-  const inputs = document.querySelectorAll('input, textarea, [contenteditable="true"]');
-  inputs.forEach(el => {
-    const type = (el.getAttribute('type') || '').toLowerCase();
-    if (['hidden', 'submit', 'button', 'checkbox', 'radio', 'file', 'password'].includes(type)) {
+  function triggerSubmit() {
+    report('正在自动点击提交按钮...');
+    let btn = document.querySelector('.question-commit button:not([disabled])');
+    if (!btn) {
+      const allBtns = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
+      btn = allBtns.find(b => {
+        if (b.disabled || b.offsetParent === null) return false;
+        const t = (b.innerText || b.value || '').trim();
+        return t === '提交' || t === '确认提交' || t === 'Submit' || t.includes('提交');
+      });
+    }
+    if (!btn) {
+      report('已自动填完，但未找到可点击的提交按钮，请手动点提交');
       return;
     }
-    if (el.offsetParent === null) return;
+    btn.click();
+    report('已点击提交，正在检测确认弹窗...');
 
-    const hint = getContextText(el);
-    let bestValue = null;
-    let bestLen = 0;
+    let tries = 0;
+    const ck = setInterval(() => {
+      const okBtn = document.querySelector('.dui-modal-footer-ok:not([disabled])') ||
+        Array.from(document.querySelectorAll('button')).find(b => {
+          const t = (b.innerText || '').trim();
+          return b.offsetParent !== null && !b.disabled && (t === '确定' || t === '确认' || t === '确认提交');
+        });
+      if (okBtn) {
+        clearInterval(ck);
+        okBtn.click();
+        report('自动填写并提交完成！');
+      } else if (++tries >= 10) {
+        clearInterval(ck);
+        report('已触发提交（无二次弹窗或已提交成功）');
+      }
+    }, 300);
+  }
 
-    for (const rule of rules) {
-      for (const w of rule.words) {
-        if (w && hint.includes(w) && w.length > bestLen) {
-          bestLen = w.length;
-          bestValue = rule.value;
+  // 持续轮询等待表单渲染（最多 30 秒，解决 SPA 异步加载和登录跳转）
+  if (window.__qdf_poll) clearInterval(window.__qdf_poll);
+  let attempts = 0;
+  window.__qdf_poll = setInterval(() => {
+    attempts++;
+    const hasForm = document.querySelector('.question') ||
+      document.querySelector('input:not([type="hidden"]), textarea, [contenteditable="true"]');
+    if (hasForm) {
+      const count = fillFormOnce();
+      if (count > 0) {
+        clearInterval(window.__qdf_poll);
+        report('已自动填写 ' + count + ' 项' + (shouldSubmit ? '，即将自动提交...' : '，请核对后提交'));
+        if (shouldSubmit) {
+          setTimeout(triggerSubmit, 400);
         }
+        return;
       }
     }
-
-    if (bestValue !== null) {
-      if (el.getAttribute('contenteditable') === 'true') {
-        el.innerText = bestValue;
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      } else {
-        setNativeValue(el, bestValue);
-      }
-      filledCount++;
+    if (attempts >= 60) {
+      clearInterval(window.__qdf_poll);
+      report('等待超时：未匹配到词条（请确认已登录且关键词与题干一致）');
     }
-  });
-  return filledCount;
-})($rulesJson);
+  }, 500);
+})($rulesJson, ${autoSubmit ? 'true' : 'false'});
 ''';
 
-    try {
-      final result = await _controller.runJavaScriptReturningResult(js);
-      final count = int.tryParse(result.toString()) ?? 0;
-      if (mounted && (count > 0 || !silentIfZero)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              count > 0
-                  ? '已自动填充 $count 个字段，请核对后提交'
-                  : '未匹配到输入框，可在「自定义词条」里补充题干关键词',
-            ),
-          ),
-        );
-      }
-      return count;
-    } catch (e) {
-      if (!silentIfZero && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('自动填充执行失败：$e')),
-        );
-      }
-      return 0;
-    }
+    await _controller.runJavaScript(js);
   }
 
   @override
@@ -794,9 +601,10 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilledButton.icon(
-              onPressed: () => _autoFillCurrentPage(silentIfZero: false),
+              onPressed: () =>
+                  _injectAutoFillEngine(autoSubmit: widget.autoSubmit),
               icon: const Icon(Icons.auto_fix_high, size: 18),
-              label: const Text('手动补填'),
+              label: const Text('立即填报'),
             ),
           ),
         ],
@@ -807,7 +615,7 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
             Container(
               width: double.infinity,
               color: Colors.amber.shade100,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Row(
                 children: [
                   const Icon(Icons.timer, size: 18, color: Colors.deepOrange),
@@ -824,13 +632,25 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
                   TextButton(
                     onPressed: () {
                       _scheduleTimer?.cancel();
-                      setState(() => _countdownText = null);
+                      setState(() {
+                        _waitingForSchedule = false;
+                        _countdownText = null;
+                      });
                     },
                     child: const Text('取消'),
                   ),
                 ],
               ),
             ),
+          Container(
+            width: double.infinity,
+            color: Colors.blue.shade50,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Text(
+              '状态：$_statusBanner',
+              style: TextStyle(fontSize: 13, color: Colors.blue.shade900),
+            ),
+          ),
           if (_progress < 100)
             LinearProgressIndicator(value: _progress / 100.0),
           Expanded(child: WebViewWidget(controller: _controller)),
@@ -897,7 +717,7 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
               TextField(
                 controller: titleCtrl,
                 decoration: const InputDecoration(
-                  labelText: '字段名称（如：微信号、身份证号）',
+                  labelText: '字段名称（如：姓名、微信号、年级）',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -906,7 +726,7 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
                 controller: keywordsCtrl,
                 decoration: const InputDecoration(
                   labelText: '匹配关键词（多个用逗号隔开）',
-                  hintText: '例如：微信号,微信,WeChat',
+                  hintText: '例如：姓名,真实姓名,填报人',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -914,7 +734,7 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
               TextField(
                 controller: valueCtrl,
                 decoration: const InputDecoration(
-                  labelText: '自动填写的内容',
+                  labelText: '自动填写/选中的内容（多选用逗号隔开）',
                   border: OutlineInputBorder(),
                 ),
               ),
