@@ -26,6 +26,64 @@ class QuickDocFillerApp extends StatelessWidget {
   }
 }
 
+/// 自定义自动填表规则模型
+class CustomFillRule {
+  final String title;    // 字段展示名，例如：微信号
+  final String keywords; // 匹配关键词（逗号分隔），例如：微信号,微信,wechat
+  final String value;    // 自动填入的内容
+
+  const CustomFillRule({
+    required this.title,
+    required this.keywords,
+    required this.value,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        'keywords': keywords,
+        'value': value,
+      };
+
+  factory CustomFillRule.fromJson(Map<String, dynamic> json) {
+    return CustomFillRule(
+      title: json['title']?.toString() ?? '',
+      keywords: json['keywords']?.toString() ?? '',
+      value: json['value']?.toString() ?? '',
+    );
+  }
+}
+
+/// 默认初始模板（用户可在 App 内随意修改、删除或新增）
+List<CustomFillRule> defaultFillRules() => const [
+      CustomFillRule(title: '姓名', keywords: '姓名,名字,填报人,联系人,真实姓名,name', value: ''),
+      CustomFillRule(title: '手机号码', keywords: '手机,电话,联系方式,联系电话,mobile,phone,tel', value: ''),
+      CustomFillRule(title: '电子邮箱', keywords: '邮箱,电子邮箱,email,mail', value: ''),
+      CustomFillRule(title: '学号 / 工号', keywords: '学号,工号,编号,员工号,student', value: ''),
+      CustomFillRule(title: '部门 / 学院', keywords: '部门,学院,单位,班级,公司,专业,组织', value: ''),
+      CustomFillRule(title: '常用地址', keywords: '地址,住址,宿舍,address', value: ''),
+    ];
+
+Future<List<CustomFillRule>> loadFillRules(UserProfileStore store) async {
+  final raw = await store.getDecryptedProfile();
+  final list = raw['custom_rules'];
+  if (list is List && list.isNotEmpty) {
+    return list
+        .whereType()
+        .map((e) => CustomFillRule.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+  return defaultFillRules();
+}
+
+Future<void> saveFillRules(
+  UserProfileStore store,
+  List<CustomFillRule> rules,
+) async {
+  await store.saveProfile({
+    'custom_rules': rules.map((r) => r.toJson()).toList(),
+  });
+}
+
 class MainHomeShell extends StatefulWidget {
   const MainHomeShell({super.key});
 
@@ -41,7 +99,7 @@ class _MainHomeShellState extends State<MainHomeShell> {
   Widget build(BuildContext context) {
     final pages = [
       DocLaunchTab(profileStore: _profileStore),
-      UserProfileTab(profileStore: _profileStore),
+      CustomRulesTab(profileStore: _profileStore),
       const GitHubAnalyzerTab(),
     ];
 
@@ -56,8 +114,8 @@ class _MainHomeShellState extends State<MainHomeShell> {
             label: '网页快填',
           ),
           NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            label: '个人档案',
+            icon: Icon(Icons.tune),
+            label: '自定义词条',
           ),
           NavigationDestination(
             icon: Icon(Icons.hub_outlined),
@@ -117,54 +175,4 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
       appBar: AppBar(title: const Text('文档网页快填（免费本地版）')),
       body: ListView(
         padding: const EdgeInsets.all(16),
-        children: [
-          TextField(
-            controller: _urlCtrl,
-            decoration: const InputDecoration(
-              labelText: '粘贴腾讯文档、飞书、金山文档或任意表单链接',
-              hintText: 'https://docs.qq.com/form/...',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: (_) => _openInWebView(),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: () => _openInWebView(),
-              icon: const Icon(Icons.open_in_browser),
-              label: const Text('打开网页并一键自动填表'),
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text('常用平台快捷入口',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ActionChip(
-                label: const Text('腾讯文档'),
-                onPressed: () => _openInWebView('https://docs.qq.com/'),
-              ),
-              ActionChip(
-                label: const Text('飞书文档'),
-                onPressed: () => _openInWebView('https://www.feishu.cn/'),
-              ),
-              ActionChip(
-                label: const Text('金山文档'),
-                onPressed: () => _openInWebView('https://www.kdocs.cn/'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(14),
-              child: Text(
-                '使用说明：\n'
-                '1. 先在底部「个人档案」填好姓名、手机号、邮箱、学号/工号、部门并加密保存。\n'
-                '2. 在上方粘贴任意收集表链接点打开（如需登录，在网页内正常登录一次即可记住状态）。\n'
-                '3. 页面加载完成后，点右上角「一键填表」，自动把档案填入对应输入框，核对后直接点网页提交。',
-              )
+        children:
