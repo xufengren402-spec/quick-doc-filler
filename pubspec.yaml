@@ -1,7 +1,7 @@
 name: quick_doc_filler
-description: 快速填写和提交微信/腾讯文档、飞书、金山文档并集成 GitHub 项目分析的 Flutter 应用
+description: 快速填写和提交微信/腾讯文档、飞书、金山文档的 Flutter 应用
 publish_to: "none"
-version: 1.0.0+1
+version: 2.0.0+2
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
