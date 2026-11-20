@@ -1,0 +1,45 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Flutter Stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 生成 iOS 平台工程文件
+        run: |
+          if [ ! -d "ios" ]; then
+            flutter create --platforms=ios --org com.quickdoc.filler --project-name quick_doc_filler .
+            rm -f test/widget_test.dart
+          fi
+
+      - name: 安装依赖并编译未签名 iOS 包
+        run: |
+          flutter pub get
+          flutter build ios --release --no-codesign
+
+      - name: 封装为带版本号的 .ipa
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r "quick-doc-filler-ios-v2.0.${{ github.run_number }}.ipa" Payload
+
+      - name: 发布新版本到 Releases（不覆盖历史版本）
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-v2.0.${{ github.run_number }}
+          name: 文档快填助手 iOS v2.0.${{ github.run_number }}
+          files: quick-doc-filler-ios-v2.0.${{ github.run_number }}.ipa
