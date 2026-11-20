@@ -74,16 +74,13 @@ jobs:
       - name: 编译 Release APK
         run: flutter build apk --release
 
-      - name: 上传 APK 安装包
-        uses: actions/upload-artifact@v4
-        with:
-          name: quick-doc-filler-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 30
+      - name: 按独立版本号重命名 APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk "quick-doc-filler-v2.0.${{ github.run_number }}.apk"
 
-      - name: 发布到 Releases（手机直下 APK）
+      - name: 发布新版本到 Releases（不覆盖历史版本）
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: Quick Doc Filler v1.0.${{ github.run_number }}
-          files: build/app/outputs/flutter-apk/app-release.apk
+          tag_name: v2.0.${{ github.run_number }}
+          name: 文档快填助手 v2.0.${{ github.run_number }}
+          files: quick-doc-filler-v2.0.${{ github.run_number }}.apk
