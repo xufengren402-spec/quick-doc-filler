@@ -27,7 +27,7 @@ class QuickDocFillerApp extends StatelessWidget {
   }
 }
 
-/// 自定义自动填表规则模型（同时支持填空、单选、多选）
+/// 自定义自动填表规则模型（支持填空、单选、多选、下拉弹窗选择）
 class CustomFillRule {
   final String title;
   final String keywords;
@@ -59,7 +59,8 @@ List<CustomFillRule> defaultFillRules() => [
       const CustomFillRule(title: '手机号码', keywords: '手机,电话,联系方式,联系电话,mobile,phone,tel', value: ''),
       const CustomFillRule(title: '电子邮箱', keywords: '邮箱,电子邮箱,email,mail', value: ''),
       const CustomFillRule(title: '学号 / 工号', keywords: '学号,工号,编号,员工号,student', value: ''),
-      const CustomFillRule(title: '班级 / 部门 / 学院', keywords: '班级,部门,学院,单位,公司,专业,年级,组织', value: ''),
+      const CustomFillRule(title: '学历 / 年级', keywords: '学历,学位,层次,年级,所在年级', value: ''),
+      const CustomFillRule(title: '班级 / 部门 / 学院', keywords: '班级,部门,学院,单位,公司,专业,组织', value: ''),
       const CustomFillRule(title: '常用地址', keywords: '地址,住址,宿舍,address', value: ''),
     ];
 
@@ -137,7 +138,6 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
   bool _autoSubmit = true;
   bool _enableSchedule = false;
 
-  /// 自动从微信/QQ/飞书整段分享文案中提取有效网址，忽略前后中文文字
   String? _extractUrl(String input) {
     final match = RegExp(
       r'https?://[^\s\u4e00-\u9fa5，。！？、）】》"<>]+',
@@ -153,7 +153,6 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
     return null;
   }
 
-  /// 一键粘贴剪贴板并自动提取链接
   Future<void> _pasteFromClipboard() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final text = data?.text?.trim() ?? '';
@@ -166,9 +165,7 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
       return;
     }
     final cleanUrl = _extractUrl(text);
-    setState(() {
-      _urlCtrl.text = cleanUrl ?? text;
-    });
+    setState(() => _urlCtrl.text = cleanUrl ?? text);
     if (cleanUrl != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('已自动提取链接')),
@@ -239,21 +236,21 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
           const SizedBox(height: 10),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('进入网页自动填写（等待题目出现即填）'),
+            title: const Text('进入网页自动填写（支持弹窗下拉选择）'),
             value: _autoFillOnLoad,
             onChanged: (v) => setState(() => _autoFillOnLoad = v),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('填完后自动点击提交'),
-            subtitle: const Text('自动点击网页提交按钮及确认弹窗'),
+            subtitle: const Text('全部题目填选完毕后自动点提交及确认弹窗'),
             value: _autoSubmit,
             onChanged: (v) => setState(() => _autoSubmit = v),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('启用定时刷新并自动填报'),
-            subtitle: const Text('到设定时间自动刷新页面、填表并提交'),
+            subtitle: const Text('建议用手机小窗/分屏挂着，到点瞬间刷新并填完'),
             value: _enableSchedule,
             onChanged: (v) => setState(() => _enableSchedule = v),
           ),
@@ -326,10 +323,12 @@ class WebFormFillPage extends StatefulWidget {
   State<WebFormFillPage> createState() => _WebFormFillPageState();
 }
 
-class _WebFormFillPageState extends State<WebFormFillPage> {
+class _WebFormFillPageState extends State<WebFormFillPage>
+    with WidgetsBindingObserver {
   late final WebViewController _controller;
   int _progress = 0;
   Timer? _scheduleTimer;
+  DateTime? _targetTime;
   String? _countdownText;
   String _statusBanner = '正在加载网页...';
   bool _waitingForSchedule = false;
@@ -337,6 +336,7 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _waitingForSchedule =
         widget.scheduledTime != null && widget.scheduledTime!.isNotEmpty;
 
@@ -375,6 +375,27 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
     }
   }
 
+  /// 从后台切回前台时，按系统真实时间立即校准定时任务
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _waitingForSchedule &&
+        _targetTime != null) {
+      if (!DateTime.now().isBefore(_targetTime!)) {
+        _triggerScheduledReload();
+      }
+    }
+  }
+
+  void _triggerScheduledReload() {
+    _scheduleTimer?.cancel();
+    setState(() {
+      _waitingForSchedule = false;
+      _countdownText = '已到点！正在自动刷新并执行填报...';
+    });
+    _controller.reload();
+  }
+
   void _startScheduleCountdown(String timeStr) {
     final parts =
         timeStr.split(':').map((e) => int.tryParse(e.trim()) ?? 0).toList();
@@ -394,6 +415,7 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
     if (!target.isAfter(now)) {
       target = target.add(const Duration(days: 1));
     }
+    _targetTime = target;
 
     _scheduleTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
       if (!mounted) {
@@ -402,12 +424,7 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
       }
       final diff = target.difference(DateTime.now());
       if (diff.inMilliseconds <= 0) {
-        timer.cancel();
-        setState(() {
-          _waitingForSchedule = false;
-          _countdownText = '已到点！正在自动刷新并执行填报...';
-        });
-        _controller.reload();
+        _triggerScheduledReload();
       } else {
         final h = diff.inHours.toString().padLeft(2, '0');
         final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
@@ -446,6 +463,10 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
 (function(rules, shouldSubmit) {
   function report(msg) {
     try { if (window.AppBridge) window.AppBridge.postMessage(msg); } catch (e) {}
+  }
+
+  function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
   }
 
   function norm(s) {
@@ -527,9 +548,7 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
       let target = candidates.find(el => norm(optionText(el)) === wanted) ||
                    candidates.find(el => norm(optionText(el)).includes(wanted));
       if (target) {
-        if (!isSelected(target)) {
-          simulateTap(target);
-        }
+        if (!isSelected(target)) simulateTap(target);
         hit++;
         if (!isMulti) break;
       }
@@ -537,70 +556,105 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
     return hit;
   }
 
-  function fillFormOnce() {
+  // 专项处理：腾讯文档等手机端“请选择 -> 弹出底部抽屉(本科/硕士/博士) -> 点完成”的下拉选择题
+  async function handlePopupDropdown(q, val) {
+    const trigger = q.querySelector('.form-select, [role="combobox"], [aria-haspopup], input[readonly], .select-box, .question-select') ||
+      Array.from(q.querySelectorAll('div, span, button')).find(el => {
+        if (el.offsetParent === null) return false;
+        const t = (el.innerText || '').trim();
+        return t === '请选择' || t === '点击选择' || t === '请选择选项';
+      });
+    if (!trigger) return 0;
+
+    report('正在打开下拉选择弹窗...');
+    simulateTap(trigger);
+    await sleep(420);
+
+    const wantedList = val.split(/[,，、]/).map(s => norm(s)).filter(Boolean);
+    let selectedCount = 0;
+
+    // 在全局可见弹窗/抽屉中查找最内层匹配的选项行
+    const allEls = Array.from(document.querySelectorAll('[role="radio"], [role="checkbox"], [role="option"], li, label, div, span')).filter(el => {
+      if (el.offsetParent === null) return false;
+      if (q.contains(el)) return false; // 排除原题目内部，只找新弹出的抽屉
+      const t = (el.innerText || '').trim();
+      return t.length > 0 && t.length <= 40 && el.children.length <= 3;
+    });
+
+    for (const wanted of wantedList) {
+      const exactMatches = allEls.filter(el => norm(el.innerText) === wanted);
+      const fuzzyMatches = allEls.filter(el => norm(el.innerText).includes(wanted));
+      const pool = exactMatches.length > 0 ? exactMatches : fuzzyMatches;
+      // 优先点击最后一个（通常是最顶层最新渲染的弹窗）
+      const target = pool.length > 0 ? pool[pool.length - 1] : null;
+      if (target) {
+        simulateTap(target);
+        selectedCount++;
+        await sleep(180);
+      }
+    }
+
+    // 查找并点击弹窗右上角的「完成」或「确定」按钮关闭抽屉
+    await sleep(150);
+    const doneBtns = Array.from(document.querySelectorAll('button, a, div, span')).filter(el => {
+      if (el.offsetParent === null || q.contains(el)) return false;
+      const t = (el.innerText || '').trim();
+      return (t === '完成' || t === '确定' || t === '确认') && el.children.length === 0;
+    });
+    if (doneBtns.length > 0) {
+      simulateTap(doneBtns[doneBtns.length - 1]);
+      await sleep(280);
+    }
+    return selectedCount;
+  }
+
+  async function fillFormAsync() {
     let filled = 0;
 
-    // 1. 腾讯文档及结构化题目块（优先处理单选/多选，再处理填空）
-    const questions = document.querySelectorAll('.question, .form-question, [data-question-id]');
+    const questions = Array.from(document.querySelectorAll('.question, .form-question, [data-question-id]'));
     if (questions.length > 0) {
-      questions.forEach(q => {
+      for (const q of questions) {
         const titleEl = q.querySelector('.question-title, .title, h3, h4') || q;
         const val = matchRule(titleEl.textContent || '');
-        if (!val) return;
+        if (!val) continue;
 
+        // 1. 直接可见的单选/多选
         const hasRadio = q.querySelector('[role="radio"], input[type="radio"]');
         if (hasRadio) {
           filled += selectChoiceInContainer(q, val, false);
-          return;
+          continue;
         }
-
         const hasCheck = q.querySelector('[role="checkbox"], input[type="checkbox"]');
         if (hasCheck) {
           filled += selectChoiceInContainer(q, val, true);
-          return;
+          continue;
         }
 
-        const inp = q.querySelector('textarea, input[type="text"], input[type="tel"], input[type="email"], input[type="number"], input:not([type])');
+        // 2. 弹出式下拉选择（如：请选择 -> 本科/硕士/博士 -> 完成）
+        const textOnly = (q.innerText || '');
+        const hasDropdownTrigger =
+          q.querySelector('.form-select, [role="combobox"], [aria-haspopup], input[readonly]') ||
+          textOnly.includes('请选择');
+        if (hasDropdownTrigger) {
+          const hit = await handlePopupDropdown(q, val);
+          if (hit > 0) {
+            filled += hit;
+            continue;
+          }
+        }
+
+        // 3. 普通填空题（排除 readonly 下拉框）
+        const inp = q.querySelector('textarea:not([readonly]), input[type="text"]:not([readonly]), input[type="tel"]:not([readonly]), input[type="email"]:not([readonly]), input[type="number"]:not([readonly]), input:not([type]):not([readonly])');
         if (inp && inp.offsetParent !== null) {
           setNativeValue(inp, val);
           filled++;
         }
-      });
+      }
     }
 
-    // 2. 通用网页兜底：原生单选组
-    const nativeRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
-    const radioGroups = {};
-    nativeRadios.forEach(r => {
-      const name = r.name || '__unnamed';
-      if (!radioGroups[name]) radioGroups[name] = [];
-      radioGroups[name].push(r);
-    });
-    Object.values(radioGroups).forEach(group => {
-      if (group.some(r => r.checked)) return;
-      let container = group[0].parentElement;
-      for (let i = 0; i < 4 && container && container.parentElement; i++) {
-        if (container.querySelectorAll('input[type="radio"]').length >= group.length) break;
-        container = container.parentElement;
-      }
-      if (!container) return;
-      const val = matchRule(container.innerText || '');
-      if (!val) return;
-      const wanted = norm(val);
-      for (const r of group) {
-        const lbl = (r.id ? document.querySelector('label[for="' + r.id + '"]') : null) || r.closest('label') || r.parentElement;
-        const txt = norm(lbl ? lbl.textContent : r.value);
-        if (txt && (txt === wanted || txt.includes(wanted))) {
-          simulateTap(lbl || r);
-          filled++;
-          break;
-        }
-      }
-    });
-
-    // 3. 通用网页兜底：填空输入框
+    // 4. 通用网页兜底（非腾讯文档页面）
     if (filled === 0) {
-      const inputs = document.querySelectorAll('input, textarea, [contenteditable="true"]');
+      const inputs = document.querySelectorAll('input:not([readonly]), textarea:not([readonly]), [contenteditable="true"]');
       inputs.forEach(el => {
         const type = (el.getAttribute('type') || '').toLowerCase();
         if (['hidden', 'submit', 'button', 'checkbox', 'radio', 'file', 'password'].includes(type)) return;
@@ -671,25 +725,29 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
 
   if (window.__qdf_poll) clearInterval(window.__qdf_poll);
   let attempts = 0;
-  window.__qdf_poll = setInterval(() => {
+  let running = false;
+  window.__qdf_poll = setInterval(async () => {
+    if (running) return;
     attempts++;
     const hasForm = document.querySelector('.question, [role="radio"], input:not([type="hidden"]), textarea, [contenteditable="true"]');
     if (hasForm) {
-      const count = fillFormOnce();
+      running = true;
+      const count = await fillFormAsync();
       if (count > 0) {
         clearInterval(window.__qdf_poll);
         report('已自动填写/选中 ' + count + ' 项' + (shouldSubmit ? '，即将自动提交...' : '，请核对后提交'));
         if (shouldSubmit) {
-          setTimeout(triggerSubmit, 450);
+          setTimeout(triggerSubmit, 500);
         }
         return;
       }
+      running = false;
     }
     if (attempts >= 60) {
       clearInterval(window.__qdf_poll);
       report('等待超时：未匹配到词条（请确认已登录且关键词与题干一致）');
     }
-  }, 500);
+  }, 600);
 })($rulesJson, ${autoSubmit ? 'true' : 'false'});
 ''';
 
@@ -698,6 +756,7 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scheduleTimer?.cancel();
     super.dispose();
   }
@@ -832,7 +891,7 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
               TextField(
                 controller: titleCtrl,
                 decoration: const InputDecoration(
-                  labelText: '字段名称（如：姓名、性别、年级）',
+                  labelText: '字段名称（如：学历、姓名、年级）',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -841,7 +900,7 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
                 controller: keywordsCtrl,
                 decoration: const InputDecoration(
                   labelText: '匹配关键词（多个用逗号隔开）',
-                  hintText: '例如：年级,所在年级',
+                  hintText: '例如：学历,学位,层次',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -849,8 +908,8 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
               TextField(
                 controller: valueCtrl,
                 decoration: const InputDecoration(
-                  labelText: '填写内容 / 单选或多选选项文字',
-                  hintText: '例如：2024（多选用逗号隔开）',
+                  labelText: '填写内容 / 下拉或单选选项文字',
+                  hintText: '例如：本科（多选用逗号隔开）',
                   border: OutlineInputBorder(),
                 ),
               ),
