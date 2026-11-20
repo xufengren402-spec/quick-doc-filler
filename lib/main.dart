@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quick_doc_filler/core/storage/secure_token_store.dart';
-import 'package:quick_doc_filler/features/github_analyzer/data/github_analyzer_service.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 void main() {
@@ -100,7 +100,6 @@ class _MainHomeShellState extends State<MainHomeShell> {
     final pages = [
       DocLaunchTab(profileStore: _profileStore),
       CustomRulesTab(profileStore: _profileStore),
-      const GitHubAnalyzerTab(),
     ];
 
     return Scaffold(
@@ -116,10 +115,6 @@ class _MainHomeShellState extends State<MainHomeShell> {
           NavigationDestination(
             icon: Icon(Icons.tune),
             label: '自定义词条',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.hub_outlined),
-            label: 'GitHub分析',
           ),
         ],
       ),
@@ -142,23 +137,66 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
   bool _autoSubmit = true;
   bool _enableSchedule = false;
 
+  /// 自动从微信/QQ/飞书整段分享文案中提取有效网址，忽略前后中文文字
+  String? _extractUrl(String input) {
+    final match = RegExp(
+      r'https?://[^\s\u4e00-\u9fa5，。！？、）】》"<>]+',
+      caseSensitive: false,
+    ).firstMatch(input);
+    if (match != null) return match.group(0);
+    final trimmed = input.trim();
+    if (trimmed.contains('.') &&
+        !trimmed.contains(' ') &&
+        !trimmed.contains('\n')) {
+      return 'https://$trimmed';
+    }
+    return null;
+  }
+
+  /// 一键粘贴剪贴板并自动提取链接
+  Future<void> _pasteFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('剪贴板为空')),
+        );
+      }
+      return;
+    }
+    final cleanUrl = _extractUrl(text);
+    setState(() {
+      _urlCtrl.text = cleanUrl ?? text;
+    });
+    if (cleanUrl != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已自动提取链接')),
+      );
+    }
+  }
+
   void _openInWebView([String? presetUrl]) {
-    var raw = (presetUrl ?? _urlCtrl.text).trim();
+    final raw = (presetUrl ?? _urlCtrl.text).trim();
     if (raw.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先粘贴需要填写的文档或收集表链接')),
+        const SnackBar(content: Text('请先粘贴包含链接的分享文案')),
       );
       return;
     }
-    if (!raw.startsWith('http://') && !raw.startsWith('https://')) {
-      raw = 'https://$raw';
+    final cleanUrl = _extractUrl(raw);
+    if (cleanUrl == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未识别到有效网址，请确认粘贴内容里包含 https:// 链接')),
+      );
+      return;
     }
-    _urlCtrl.text = raw;
+    _urlCtrl.text = cleanUrl;
 
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => WebFormFillPage(
-          initialUrl: raw,
+          initialUrl: cleanUrl,
           profileStore: widget.profileStore,
           autoFillOnLoad: _autoFillOnLoad,
           autoSubmit: _autoSubmit,
@@ -178,16 +216,23 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('文档全自动填报')),
+      appBar: AppBar(title: const Text('文档全自动填报 v2.0')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           TextField(
             controller: _urlCtrl,
-            decoration: const InputDecoration(
-              labelText: '粘贴腾讯文档、飞书、金山文档或任意表单链接',
-              hintText: 'https://docs.qq.com/form/...',
-              border: OutlineInputBorder(),
+            minLines: 1,
+            maxLines: 3,
+            decoration: InputDecoration(
+              labelText: '直接粘贴微信/飞书/金山分享文案或链接',
+              hintText: '支持整段粘贴，自动提取 https:// 链接',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                tooltip: '一键粘贴并提取链接',
+                onPressed: _pasteFromClipboard,
+                icon: const Icon(Icons.content_paste),
+              ),
             ),
             onSubmitted: (_) => _openInWebView(),
           ),
@@ -201,7 +246,7 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('填完后自动点击提交'),
-            subtitle: const Text('自动点击网页提交按钮及腾讯文档确认弹窗'),
+            subtitle: const Text('自动点击网页提交按钮及确认弹窗'),
             value: _autoSubmit,
             onChanged: (v) => setState(() => _autoSubmit = v),
           ),
@@ -311,7 +356,6 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
           },
           onPageFinished: (url) async {
             if (!mounted) return;
-            // 若正在等待定时触发，先只停在页面等待倒计时结束刷新
             if (_waitingForSchedule) {
               setState(() => _statusBanner = '网页已就绪，等待到点自动刷新并填报...');
               return;
@@ -375,7 +419,6 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
     });
   }
 
-  /// 注入统一自动填表+自动提交引擎（持续轮询等待表单渲染，适配腾讯文档/飞书/金山/通用网页）
   Future<void> _injectAutoFillEngine({required bool autoSubmit}) async {
     final allRules = await loadFillRules(widget.profileStore);
     final activeRules = allRules
@@ -439,49 +482,123 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
     );
   }
 
+  function isSelected(el) {
+    if (!el) return false;
+    if (el.checked === true) return true;
+    if (el.getAttribute('aria-checked') === 'true') return true;
+    const inner = el.querySelector('input[type="radio"], input[type="checkbox"]');
+    if (inner && inner.checked) return true;
+    const cls = (el.className || '').toString().toLowerCase();
+    return cls.includes('checked') || cls.includes('selected') || cls.includes('active');
+  }
+
+  function simulateTap(el) {
+    if (!el) return;
+    try { el.scrollIntoView({ block: 'center' }); } catch (e) {}
+    ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(type => {
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+    });
+    if (typeof el.click === 'function') el.click();
+  }
+
+  function optionText(el) {
+    const tEl = el.querySelector('.form-choice-option-text-content, .option-text, span, label');
+    return (tEl ? tEl.textContent : el.textContent) || '';
+  }
+
+  function selectChoiceInContainer(container, val, isMulti) {
+    const wantedList = isMulti
+      ? val.split(/[,，、]/).map(s => norm(s)).filter(Boolean)
+      : [norm(val)];
+
+    const selector = isMulti
+      ? '[role="checkbox"], .form-choice-option, label'
+      : '[role="radio"], .form-choice-option, label';
+
+    const candidates = Array.from(container.querySelectorAll(selector)).filter(el => {
+      if (el.offsetParent === null) return false;
+      const txt = norm(optionText(el));
+      return txt.length > 0;
+    });
+
+    let hit = 0;
+    for (const wanted of wantedList) {
+      if (!wanted) continue;
+      let target = candidates.find(el => norm(optionText(el)) === wanted) ||
+                   candidates.find(el => norm(optionText(el)).includes(wanted));
+      if (target) {
+        if (!isSelected(target)) {
+          simulateTap(target);
+        }
+        hit++;
+        if (!isMulti) break;
+      }
+    }
+    return hit;
+  }
+
   function fillFormOnce() {
     let filled = 0;
 
-    // 1. 优先适配腾讯文档收集表结构（支持填空 + 单选 + 多选）
-    const questions = document.querySelectorAll('.question');
+    // 1. 腾讯文档及结构化题目块（优先处理单选/多选，再处理填空）
+    const questions = document.querySelectorAll('.question, .form-question, [data-question-id]');
     if (questions.length > 0) {
       questions.forEach(q => {
-        const titleEl = q.querySelector('.question-title') || q;
+        const titleEl = q.querySelector('.question-title, .title, h3, h4') || q;
         const val = matchRule(titleEl.textContent || '');
         if (!val) return;
 
-        const inp = q.querySelector('textarea, input[type="text"], input:not([type])');
-        if (inp) {
+        const hasRadio = q.querySelector('[role="radio"], input[type="radio"]');
+        if (hasRadio) {
+          filled += selectChoiceInContainer(q, val, false);
+          return;
+        }
+
+        const hasCheck = q.querySelector('[role="checkbox"], input[type="checkbox"]');
+        if (hasCheck) {
+          filled += selectChoiceInContainer(q, val, true);
+          return;
+        }
+
+        const inp = q.querySelector('textarea, input[type="text"], input[type="tel"], input[type="email"], input[type="number"], input:not([type])');
+        if (inp && inp.offsetParent !== null) {
           setNativeValue(inp, val);
           filled++;
-          return;
-        }
-
-        const radios = Array.from(q.querySelectorAll('[role="radio"]'));
-        if (radios.length > 0) {
-          const target = radios.find(o => {
-            const t = o.querySelector('.form-choice-option-text-content')?.textContent || o.textContent || '';
-            return norm(t).includes(norm(val));
-          });
-          if (target) { target.click(); filled++; }
-          return;
-        }
-
-        const checks = Array.from(q.querySelectorAll('[role="checkbox"]'));
-        if (checks.length > 0) {
-          const wanted = val.split(/[,，、]/).map(s => norm(s)).filter(Boolean);
-          checks.forEach(o => {
-            const t = o.querySelector('.form-choice-option-text-content')?.textContent || o.textContent || '';
-            if (wanted.some(w => norm(t).includes(w))) {
-              o.click();
-              filled++;
-            }
-          });
         }
       });
     }
 
-    // 2. 通用网页表单兜底（飞书、金山文档、问卷星等）
+    // 2. 通用网页兜底：原生单选组
+    const nativeRadios = Array.from(document.querySelectorAll('input[type="radio"]'));
+    const radioGroups = {};
+    nativeRadios.forEach(r => {
+      const name = r.name || '__unnamed';
+      if (!radioGroups[name]) radioGroups[name] = [];
+      radioGroups[name].push(r);
+    });
+    Object.values(radioGroups).forEach(group => {
+      if (group.some(r => r.checked)) return;
+      let container = group[0].parentElement;
+      for (let i = 0; i < 4 && container && container.parentElement; i++) {
+        if (container.querySelectorAll('input[type="radio"]').length >= group.length) break;
+        container = container.parentElement;
+      }
+      if (!container) return;
+      const val = matchRule(container.innerText || '');
+      if (!val) return;
+      const wanted = norm(val);
+      for (const r of group) {
+        const lbl = (r.id ? document.querySelector('label[for="' + r.id + '"]') : null) || r.closest('label') || r.parentElement;
+        const txt = norm(lbl ? lbl.textContent : r.value);
+        if (txt && (txt === wanted || txt.includes(wanted))) {
+          simulateTap(lbl || r);
+          filled++;
+          break;
+        }
+      }
+    });
+
+    // 3. 通用网页兜底：填空输入框
     if (filled === 0) {
       const inputs = document.querySelectorAll('input, textarea, [contenteditable="true"]');
       inputs.forEach(el => {
@@ -531,7 +648,7 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
       report('已自动填完，但未找到可点击的提交按钮，请手动点提交');
       return;
     }
-    btn.click();
+    simulateTap(btn);
     report('已点击提交，正在检测确认弹窗...');
 
     let tries = 0;
@@ -543,7 +660,7 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
         });
       if (okBtn) {
         clearInterval(ck);
-        okBtn.click();
+        simulateTap(okBtn);
         report('自动填写并提交完成！');
       } else if (++tries >= 10) {
         clearInterval(ck);
@@ -552,20 +669,18 @@ class _WebFormFillPageState extends State<WebFormFillPage> {
     }, 300);
   }
 
-  // 持续轮询等待表单渲染（最多 30 秒，解决 SPA 异步加载和登录跳转）
   if (window.__qdf_poll) clearInterval(window.__qdf_poll);
   let attempts = 0;
   window.__qdf_poll = setInterval(() => {
     attempts++;
-    const hasForm = document.querySelector('.question') ||
-      document.querySelector('input:not([type="hidden"]), textarea, [contenteditable="true"]');
+    const hasForm = document.querySelector('.question, [role="radio"], input:not([type="hidden"]), textarea, [contenteditable="true"]');
     if (hasForm) {
       const count = fillFormOnce();
       if (count > 0) {
         clearInterval(window.__qdf_poll);
-        report('已自动填写 ' + count + ' 项' + (shouldSubmit ? '，即将自动提交...' : '，请核对后提交'));
+        report('已自动填写/选中 ' + count + ' 项' + (shouldSubmit ? '，即将自动提交...' : '，请核对后提交'));
         if (shouldSubmit) {
-          setTimeout(triggerSubmit, 400);
+          setTimeout(triggerSubmit, 450);
         }
         return;
       }
@@ -717,7 +832,7 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
               TextField(
                 controller: titleCtrl,
                 decoration: const InputDecoration(
-                  labelText: '字段名称（如：姓名、微信号、年级）',
+                  labelText: '字段名称（如：姓名、性别、年级）',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -726,7 +841,7 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
                 controller: keywordsCtrl,
                 decoration: const InputDecoration(
                   labelText: '匹配关键词（多个用逗号隔开）',
-                  hintText: '例如：姓名,真实姓名,填报人',
+                  hintText: '例如：年级,所在年级',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -734,7 +849,8 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
               TextField(
                 controller: valueCtrl,
                 decoration: const InputDecoration(
-                  labelText: '自动填写/选中的内容（多选用逗号隔开）',
+                  labelText: '填写内容 / 单选或多选选项文字',
+                  hintText: '例如：2024（多选用逗号隔开）',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -815,7 +931,7 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
                     onTap: () => _showRuleEditor(editIndex: index),
                     title: Text(rule.title),
                     subtitle: Text(
-                      '填入内容：${isEmpty ? "（未填写，点此编辑）" : rule.value}\n'
+                      '填入/选中：${isEmpty ? "（未填写，点此编辑）" : rule.value}\n'
                       '匹配词：${rule.keywords}',
                     ),
                     trailing: IconButton(
@@ -827,97 +943,6 @@ class _CustomRulesTabState extends State<CustomRulesTab> {
                 );
               },
             ),
-    );
-  }
-}
-
-class GitHubAnalyzerTab extends StatefulWidget {
-  const GitHubAnalyzerTab({super.key});
-
-  @override
-  State<GitHubAnalyzerTab> createState() => _GitHubAnalyzerTabState();
-}
-
-class _GitHubAnalyzerTabState extends State<GitHubAnalyzerTab> {
-  final _keywordCtrl = TextEditingController(text: 'form');
-  final _service = GitHubAnalyzerService();
-  List<RepoQualityReport> _reports = [];
-  bool _loading = false;
-  String? _error;
-
-  Future<void> _search() async {
-    final kw = _keywordCtrl.text.trim();
-    if (kw.isEmpty) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final res = await _service.searchAndEvaluate(keyword: kw, limit: 5);
-      setState(() => _reports = res);
-    } catch (e) {
-      setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  void dispose() {
-    _keywordCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('GitHub 项目分析')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _keywordCtrl,
-              decoration: InputDecoration(
-                labelText: '输入关键词搜索 Dart/Flutter 开源项目',
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  onPressed: _loading ? null : _search,
-                  icon: const Icon(Icons.search),
-                ),
-              ),
-              onSubmitted: (_) => _search(),
-            ),
-            const SizedBox(height: 12),
-            if (_loading) const LinearProgressIndicator(),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Text(_error!, style: const TextStyle(color: Colors.red)),
-              ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _reports.length,
-                itemBuilder: (context, index) {
-                  final r = _reports[index];
-                  return Card(
-                    margin: const EdgeInsets.only(top: 10),
-                    child: ListTile(
-                      title: Text(r.fullName),
-                      subtitle: Text(
-                        '⭐ ${r.stars}  |  👥 ${r.contributorsCount} 贡献者\n${r.evaluationSummary}',
-                      ),
-                      trailing: CircleAvatar(
-                        child: Text(r.qualityGrade),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
