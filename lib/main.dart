@@ -68,7 +68,6 @@ class AppUpdateService {
     return int.tryParse(m?.group(1) ?? '') ?? 0;
   }
 
-  /// 返回最新 APK 版本；若当前已是最新则返回 null
   Future<AppUpdateInfo?> checkForUpdate() async {
     final res = await _dio.get(
       'https://api.github.com/repos/$kGithubRepo/releases',
@@ -169,7 +168,6 @@ Future<void> showUpdateDialogIfAvailable(
   }
 }
 
-/// 自定义自动填表规则模型（支持腾讯文档、飞书、金山文档、问卷星）
 class CustomFillRule {
   final String title;
   final String keywords;
@@ -211,7 +209,7 @@ Future<List<CustomFillRule>> loadFillRules(UserProfileStore store) async {
   final list = raw['custom_rules'];
   if (list is List && list.isNotEmpty) {
     return list
-        .whereType<Map>()
+        .whereType()
         .map((e) => CustomFillRule.fromJson(Map<String, dynamic>.from(e)))
         .toList();
   }
@@ -241,7 +239,6 @@ class _MainHomeShellState extends State<MainHomeShell> {
   @override
   void initState() {
     super.initState();
-    // 启动后静默检查一次是否有新版本，有则弹窗提示下载
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         showUpdateDialogIfAvailable(context, manualCheck: false);
@@ -286,7 +283,7 @@ class DocLaunchTab extends StatefulWidget {
 
 class _DocLaunchTabState extends State<DocLaunchTab> {
   final _urlCtrl = TextEditingController();
-  final _scheduleTimeCtrl = TextEditingController(text: '23:29:00');
+  final _scheduleTimeCtrl = TextEditingController(text: '20:30:01');
   bool _autoFillOnLoad = true;
   bool _autoSubmit = true;
   bool _enableSchedule = false;
@@ -423,7 +420,7 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
               controller: _scheduleTimeCtrl,
               decoration: const InputDecoration(
                 labelText: '定时触发时间（24小时制 HH:MM:SS）',
-                hintText: '例如：23:29:00',
+                hintText: '例如：20:30:01',
                 prefixIcon: Icon(Icons.schedule),
                 border: OutlineInputBorder(),
               ),
