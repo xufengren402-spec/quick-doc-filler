@@ -56,9 +56,9 @@ class AppUpdateInfo {
 /// 通过 GitHub Releases 自动检查安卓 APK 新版本
 class AppUpdateService {
   final Dio _dio = Dio(
-    const BaseOptions(
-      connectTimeout: Duration(seconds: 10),
-      receiveTimeout: Duration(seconds: 10),
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
       headers: {'Accept': 'application/vnd.github+json'},
     ),
   );
@@ -364,7 +364,7 @@ class _DocLaunchTabState extends State<DocLaunchTab> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('文档全自动填报 $kCurrentAppVersion'),
+        title: Text('文档全自动填报 $kCurrentAppVersion'),
         actions: [
           IconButton(
             tooltip: '检查更新',
